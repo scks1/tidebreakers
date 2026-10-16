@@ -3,6 +3,10 @@
 A small, polished, turn-based multiplayer strategy game that humans and AI
 agents play in the same match, by the same rules.
 
+**Play it live:** https://tidebreakers.onrender.com — no install, no login.
+(The host is a free tier that sleeps when idle; the first load after a quiet
+period can take about a minute while the service wakes.)
+
 **Rules (one paragraph):** On a 5×5 grid of islands, 2–4 captains start in the
 corners with one island of strength 4; wild islands hold a garrison of 2. Each
 turn you receive 3 supply to add to islands you own, then you may send one
