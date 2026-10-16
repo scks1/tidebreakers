@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: tidebreakers
+    runtime: python
+    plan: free
+    buildCommand: echo ok
+    startCommand: python3 game.py $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0

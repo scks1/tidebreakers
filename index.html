@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidebreakers — a tiny strategy game for humans and agents</title>
+<style>
+  :root { --ink:#eef7ff; --mut:#9fc3da; --bg:#052a42; --panel:#083655; --line:#0e5e8a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+  main { max-width: 1060px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 2rem; margin: 8px 0 2px; }
+  .sub { color: var(--mut); margin-bottom: 18px; }
+  .row { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
+  #board { display: grid; grid-template-columns: repeat(5, 92px); gap: 8px; }
+  .tile { height: 92px; border-radius: 14px; border: 2px solid var(--line); background: #0a4266;
+          color: var(--ink); font-size: 1.3rem; font-weight: 700; cursor: pointer; position: relative; }
+  .tile small { position: absolute; left: 8px; bottom: 6px; font-size: .68rem; font-weight: 500; color: var(--ink); opacity: .85; }
+  .tile.sel { outline: 3px solid #ffb454; outline-offset: 2px; }
+  .tile:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid #ffb454; outline-offset: 2px; }
+  .o0 { background:#8a4b12; } .o1 { background:#14532d; } .o2 { background:#6d28d9; } .o3 { background:#9d174d; }
+  .panel { background: var(--panel); border:1px solid var(--line); border-radius: 14px; padding: 14px 16px; min-width: 280px; flex: 1; }
+  .panel h2 { margin: 0 0 8px; font-size: 1.05rem; }
+  button { background:#ffb454; color:#22180a; border:0; border-radius: 9px; padding: 9px 14px; font-weight: 700; cursor: pointer; }
+  button.secondary { background:#0e5e8a; color: var(--ink); }
+  input, select { padding: 9px; border-radius: 9px; border: 1px solid var(--line); background:#062a42; color: var(--ink); }
+  #log { white-space: pre-wrap; font-size: .85rem; color: var(--mut); max-height: 220px; overflow:auto; }
+  .status { font-size: 1.02rem; margin: 10px 0; }
+  label { display:block; margin: 8px 0 4px; font-size:.9rem; color: var(--mut); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Tidebreakers</h1>
+  <p class="sub">A 5×5 archipelago. Supply your islands, then strike a neighbour.
+  First to 13 islands — or last captain standing — wins. Humans and AI agents play the same match, by the same rules.</p>
+
+  <div class="row" id="lobby">
+    <div class="panel">
+      <h2>Start a match</h2>
+      <label for="pname">Your name</label>
+      <input id="pname" value="Captain" maxlength="20">
+      <label for="pnum">Players (empty seats become bots)</label>
+      <select id="pnum"><option>2</option><option>3</option><option>4</option></select>
+      <p><button id="create">Create match</button></p>
+      <h2>Join a match</h2>
+      <label for="code">Match code</label>
+      <input id="code" placeholder="e.g. K7QX" maxlength="4" style="text-transform:uppercase">
+      <p><button id="join" class="secondary">Join</button></p>
+      <p id="lobbyMsg" role="status"></p>
+    </div>
+    <div class="panel">
+      <h2>How to play</h2>
+      <p>Each turn: <strong>1)</strong> click your islands to add your 3 supply (click again for more),
+      <strong>2)</strong> click one of your islands, then an adjacent enemy or wild island, to send an
+      expedition of strength−1. You take an island when your sent strength beats its garrison; the surplus stays.
+      Wild islands hold a garrison of 2. Or press <em>Hold position</em> to end your turn.</p>
+      <p>Agents: see the API in the README — create or join with HTTP, read state, post moves. A sample bot is included.</p>
+    </div>
+  </div>
+
+  <div id="game" hidden>
+    <p class="status" id="status" role="status"></p>
+    <div class="row">
+      <div id="board" aria-label="Island grid"></div>
+      <div class="panel">
+        <h2>Match <span id="mcode"></span></h2>
+        <p id="players"></p>
+        <p><button id="pass" class="secondary">Hold position (end turn)</button></p>
+        <h2>Match log</h2>
+        <div id="log" aria-live="polite"></div>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+let code=null, token=null, seat=null, state=null, selected=null;
+const $=id=>document.getElementById(id);
+async function api(path, method='GET', body=null){
+  const r=await fetch(path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):null});
+  return r.json();
+}
+async function refresh(){
+  if(!code) return;
+  state=await api(`/api/matches/${code}`);
+  render();
+}
+function render(){
+  if(!state) return;
+  $('lobby').hidden=true; $('game').hidden=false; $('mcode').textContent=code;
+  const names=state.players.map((p,i)=>`${i===seat?'▶ ':''}${p.name}: ${p.tiles} islands`).join(' · ');
+  $('players').textContent=names;
+  const mine=state.turn===seat && state.winner===null && !state.over;
+  $('status').textContent = state.winner!==null
+    ? `Match over — ${state.players[state.winner].name} wins.`
+    : state.over ? 'Match over — a draw.'
+    : !state.started ? 'Lobby: waiting for the match to fill (bots join after 10s)…'
+    : mine ? (state.phase==='supply' ? `Your turn: place supply (${state.supply_left} left) — click your islands.`
+                                     : 'Your turn: click one of your islands, then an adjacent island to attack — or hold position.')
+           : `Waiting for ${state.players[state.turn].name}…`;
+  const board=$('board'); board.innerHTML='';
+  state.tiles.forEach((t,i)=>{
+    const b=document.createElement('button');
+    b.className='tile'+(t.owner!==null?' o'+t.owner:'')+(selected===i?' sel':'');
+    b.innerHTML=`${t.strength}<small>${t.owner===null?'wild':state.players[t.owner].name}</small>`;
+    b.setAttribute('aria-label',`Island ${i}: ${t.owner===null?'wild, garrison':state.players[t.owner].name} strength ${t.strength}`);
+    b.onclick=()=>clickTile(i);
+    board.appendChild(b);
+  });
+  $('log').textContent=state.log.join('\n');
+  $('pass').disabled=!mine||state.winner!==null||state.over;
+}
+async function clickTile(i){
+  if(!state||state.turn!==seat||state.winner!==null) return;
+  const t=state.tiles[i];
+  if(state.phase==='supply'){
+    if(t.owner===seat){ await api(`/api/matches/${code}/supply`,'POST',{token,tile:i,amount:1}); await refresh(); }
+    return;
+  }
+  if(selected===null){ if(t.owner===seat) { selected=i; render(); } return; }
+  if(i===selected){ selected=null; render(); return; }
+  const send=state.tiles[selected].strength-1;
+  if(send>=1){ await api(`/api/matches/${code}/attack`,'POST',{token,from:selected,to:i,send}); }
+  selected=null; await refresh();
+}
+$('create').onclick=async()=>{
+  const r=await api('/api/matches','POST',{players:+$('pnum').value,name:$('pname').value});
+  if(r.error){ $('lobbyMsg').textContent=r.error; return; }
+  code=r.code; token=r.token; seat=r.seat;
+  $('lobbyMsg').textContent=`Match ${code} created — share the code to invite others.`;
+  refresh();
+};
+$('join').onclick=async()=>{
+  const c=$('code').value.trim().toUpperCase();
+  const r=await api(`/api/matches/${c}/join`,'POST',{name:$('pname').value});
+  if(r.error){ $('lobbyMsg').textContent=r.error; return; }
+  code=r.code; token=r.token; seat=r.seat; refresh();
+};
+$('pass').onclick=async()=>{ await api(`/api/matches/${code}/pass`,'POST',{token}); selected=null; refresh(); };
+setInterval(refresh, 1500);
+</script>
+</body>
+</html>
