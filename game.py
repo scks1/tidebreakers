@@ -18,13 +18,14 @@ Stdlib only. Run: python3 game.py [port]   (default 8471)
 API:
   POST /api/matches            {players: 2-4, name}      -> {code, seat, token}
   POST /api/matches/<code>/join {name}                  -> {seat, token}
-  GET  /api/matches/<code>                              -> public state
-  GET  /api/matches/<code>/state?token=T                -> state incl. your seat
+  GET  /api/matches/<code>                              -> public state (incl. full match log)
   POST /api/matches/<code>/supply {token, tile, amount} -> place supply (phase 1)
   POST /api/matches/<code>/attack {token, from, to, send} -> one expedition (phase 2, ends turn)
   POST /api/matches/<code>/pass   {token}               -> end turn without attacking
-Empty seats are filled by bots when the match starts (first join starts a
-10-second lobby countdown; bots also take over on /api/matches/<code>/tick).
+Your seat and token come from the create/join response; the public state
+shows whose turn it is. Empty seats are filled by bots when the match
+starts: creating or joining starts a 10-second lobby countdown, and bot
+fill is evaluated on every state read, so no separate tick call exists.
 """
 import json, random, secrets, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -83,7 +84,7 @@ class Match:
                 "time_limit_s": TIME_LIMIT_S,
                 "elapsed_s": int(time.time() - self.started_at)
                              if self.started_at else 0,
-                "log": self.log[-30:], "started": self.started}
+                "log": list(self.log), "started": self.started}
 
     def err(self, msg): return {"error": msg}
 
